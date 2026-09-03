@@ -78,6 +78,10 @@ fn is_extra_rate_limit_key(key: &str) -> bool {
         || (normalized_key.contains("gpt") && normalized_key.contains("reserve"))
 }
 
+fn is_stable_non_reserve_rate_limit_key(key: &str) -> bool {
+    normalized_identifier(key) == "codereviewratelimit"
+}
+
 fn normalize_rate_limit_entry(source_key: Option<&str>, value: &Value) -> Option<Value> {
     let obj = value.as_object()?;
     let rate_limit = obj
@@ -225,17 +229,26 @@ pub fn usage_payload_declares_extra_rate_limits(value: &Value) -> bool {
     let Some(root) = value.as_object() else {
         return false;
     };
-    if root.contains_key(EXTRA_RATE_LIMITS_JSON_KEY)
+    // `null` is returned by the upstream usage endpoint when the optional
+    // reserve section is not present in that response. Keep the previous
+    // cached bucket in that case; an array/object (including an empty one)
+    // remains an authoritative refresh.
+    if root
+        .get(EXTRA_RATE_LIMITS_JSON_KEY)
+        .is_some_and(|value| !value.is_null())
         || ADDITIONAL_RATE_LIMITS_KEYS
             .iter()
-            .any(|key| root.contains_key(*key))
+            .any(|key| root.get(*key).is_some_and(|value| !value.is_null()))
     {
         return true;
     }
-    if root
-        .iter()
-        .any(|(key, _)| key != "rate_limit" && key != "rateLimit" && is_extra_rate_limit_key(key))
-    {
+    if root.iter().any(|(key, value)| {
+        key != "rate_limit"
+            && key != "rateLimit"
+            && !value.is_null()
+            && is_extra_rate_limit_key(key)
+            && !is_stable_non_reserve_rate_limit_key(key)
+    }) {
         return true;
     }
     root.get("credits")
@@ -296,6 +309,28 @@ pub fn has_usable_luna_reserve(credits_json: Option<&str>) -> bool {
     })
 }
 
+fn extra_rate_limit_identifiers(entry: &Value) -> Vec<String> {
+    entry
+        .as_object()
+        .into_iter()
+        .flat_map(|object| {
+            ["source_key", "limit_id", "limit_name", "metered_feature"]
+                .into_iter()
+                .filter_map(|key| object.get(key).and_then(Value::as_str))
+                .map(normalized_identifier)
+                .filter(|value| !value.is_empty())
+        })
+        .collect()
+}
+
+fn extra_rate_limit_entries_overlap(left: &Value, right: &Value) -> bool {
+    let right_identifiers = extra_rate_limit_identifiers(right);
+    !right_identifiers.is_empty()
+        && extra_rate_limit_identifiers(left)
+            .into_iter()
+            .any(|identifier| right_identifiers.contains(&identifier))
+}
+
 /// Merges the previous extra rate-limit buckets when a newer usage response omits them.
 /// An explicitly supplied current bucket list remains authoritative.
 pub fn merge_missing_extra_rate_limits(
@@ -309,12 +344,18 @@ pub fn merge_missing_extra_rate_limits(
         .map(str::trim)
         .filter(|raw| !raw.is_empty())
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
-    let previous_extra = previous
-        .as_ref()
-        .and_then(Value::as_object)
-        .and_then(|obj| obj.get(EXTRA_RATE_LIMITS_JSON_KEY))
-        .filter(|value| !value.is_null())
-        .cloned();
+    let previous_extra = previous.as_ref().and_then(|value| {
+        let mut entries = Vec::new();
+        for entry in collect_extra_rate_limits(value) {
+            if !entries
+                .iter()
+                .any(|existing| extra_rate_limit_entries_overlap(existing, &entry))
+            {
+                entries.push(entry);
+            }
+        }
+        (!entries.is_empty()).then_some(Value::Array(entries))
+    });
 
     let Some(previous_extra) = previous_extra else {
         return current_raw.map(ToString::to_string);
@@ -334,10 +375,23 @@ pub fn merge_missing_extra_rate_limits(
         },
         None => serde_json::Map::new(),
     };
-    if current.contains_key(EXTRA_RATE_LIMITS_JSON_KEY) {
-        return Some(Value::Object(current).to_string());
+    match current.get_mut(EXTRA_RATE_LIMITS_JSON_KEY) {
+        Some(Value::Array(current_entries)) => {
+            if let Value::Array(previous_entries) = previous_extra {
+                for previous_entry in previous_entries {
+                    if !current_entries.iter().any(|current_entry| {
+                        extra_rate_limit_entries_overlap(current_entry, &previous_entry)
+                    }) {
+                        current_entries.push(previous_entry);
+                    }
+                }
+            }
+        }
+        Some(_) => return Some(Value::Object(current).to_string()),
+        None => {
+            current.insert(EXTRA_RATE_LIMITS_JSON_KEY.to_string(), previous_extra);
+        }
     }
-    current.insert(EXTRA_RATE_LIMITS_JSON_KEY.to_string(), previous_extra);
     Some(Value::Object(current).to_string())
 }
 

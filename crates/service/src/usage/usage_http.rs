@@ -41,6 +41,7 @@ const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
 const CF_RAY_HEADER: &str = "cf-ray";
 const AUTH_ERROR_HEADER: &str = "x-openai-authorization-error";
 const X_OPENAI_FEDRAMP_HEADER_NAME: &str = "x-openai-fedramp";
+const X_OPENAI_CODEX_LUNA_RESERVE_HEADER_NAME: &str = "x-openai-codex-luna-reserve";
 
 #[derive(Debug, Clone)]
 pub(crate) struct UsageActionHttpError {
@@ -660,6 +661,13 @@ fn build_usage_request_headers(workspace_id: Option<&str>, is_fedramp: bool) -> 
         headers.insert(
             HeaderName::from_static(X_OPENAI_FEDRAMP_HEADER_NAME),
             HeaderValue::from_static("true"),
+        );
+    } else {
+        // Match the official Codex usage request so eligible ChatGPT plans
+        // receive the optional Luna Reserve bucket.
+        headers.insert(
+            HeaderName::from_static(X_OPENAI_CODEX_LUNA_RESERVE_HEADER_NAME),
+            HeaderValue::from_static("1"),
         );
     }
     headers

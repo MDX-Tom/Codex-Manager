@@ -235,6 +235,7 @@ export const EN_ACCOUNTS_MESSAGES: MessageCatalog = {
     "Quota capacity must be a number greater than 0. Leave blank for no override.",
   "额度已耗尽": "Quota exhausted",
   "强制开启": "Force enabled",
+  "取消强制开启": "Disable force enabled",
   "仅 Luna Reserve": "Luna Reserve only",
   "Luna Reserve 额度": "Luna Reserve quota",
   "额度耗尽后仍使用账号": "Keep using account after quota exhaustion",

@@ -258,6 +258,7 @@ export interface AccountsPageViewProps {
   refreshAccount: (accountId: string) => void;
   clearPreferredAccount: (accountId: string) => void;
   setPreferredAccount: (accountId: string) => void;
+  toggleForceEnabled: (account: Account) => Promise<void>;
   toggleAccountStatus: (
     accountId: string,
     enabled: boolean,
@@ -388,6 +389,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     onAccountTestFinished,
     clearPreferredAccount,
     setPreferredAccount,
+    toggleForceEnabled,
     toggleAccountStatus,
   } = props;
 
@@ -452,6 +454,18 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     const isAtListTop = accounts[0]?.id === account.id;
     const isAtListBottom =
       accounts[accounts.length - 1]?.id === account.id;
+    const normalizedAccountStatus = account.status.trim().toLowerCase();
+    const isForceEnabled = normalizedAccountStatus === "force_enabled";
+    const forceToggleBlocked = [
+      "disabled",
+      "inactive",
+      "unavailable",
+      "banned",
+    ].includes(normalizedAccountStatus);
+    const isForceToggleBusy =
+      isUpdatingManyStatuses ||
+      isUpdatingProfileAccountId === account.id ||
+      isUpdatingStatusAccountId === account.id;
 
     return (
       <div className="table-action-cell gap-1">
@@ -572,6 +586,21 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                   {t("测试账号")}
                 </DropdownMenuItem>
               ) : null}
+              <DropdownMenuItem
+                className="gap-2"
+                disabled={
+                  !isServiceReady || forceToggleBlocked || isForceToggleBusy
+                }
+                onClick={() => void toggleForceEnabled(account)}
+              >
+                {isForceEnabled ? (
+                  <PowerOff className="h-4 w-4" />
+                ) : (
+                  <Power className="h-4 w-4" />
+                )}
+                {isForceEnabled ? t("取消强制开启") : t("强制开启")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="gap-2"
                 disabled={
@@ -1099,7 +1128,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 <colgroup>
                   <col className="account-pool-col-select" />
                   <col className="account-pool-col-info" />
-                  <col />
+                  <col className="account-pool-col-quota" />
                   <col className="account-pool-col-order" />
                   <col className="account-pool-col-proxy" />
                   <col className="account-pool-col-status" />
@@ -1117,13 +1146,13 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     onCheckedChange={toggleSelectAllVisible}
                   />
                 </TableHead>
-                <TableHead className="w-[clamp(280px,34vw,440px)] min-w-[280px] max-w-[440px] whitespace-normal">
+                <TableHead className="w-[360px] min-w-[320px] max-w-[360px] whitespace-normal">
                   {t("账号信息")}
                 </TableHead>
                 <TableHead className="min-w-[300px] text-center">
                   {t("额度详情")}
                 </TableHead>
-                <TableHead className="w-[132px]">{t("顺序")}</TableHead>
+                <TableHead className="w-[168px]">{t("顺序")}</TableHead>
                 <TableHead className="min-w-[180px]">{t("账号代理")}</TableHead>
                 <TableHead className="account-pool-status-head whitespace-normal">
                   {t("状态")}
@@ -1188,7 +1217,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                           onCheckedChange={() => toggleSelect(account.id)}
                         />
                       </TableCell>
-                      <TableCell className="w-[clamp(280px,34vw,440px)] min-w-[280px] max-w-[440px] whitespace-normal align-top">
+                      <TableCell className="w-[360px] min-w-[320px] max-w-[360px] whitespace-normal align-top">
                         <AccountInfoCell
                           account={account}
                           isPreferred={account.preferred}
@@ -1230,8 +1259,8 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                           />
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
+                      <TableCell className="align-middle whitespace-nowrap">
+                        <div className="flex min-w-max flex-nowrap items-center gap-1">
                           <span className="min-w-8 rounded-md bg-muted/60 px-2 py-1 text-center font-mono text-xs font-semibold tabular-nums">
                             {account.priority}
                           </span>
@@ -1277,6 +1306,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                               isUpdatingProfileAccountId === account.id
                             }
                             onClick={() => openAccountEditor(account)}
+                            aria-label={t("编辑账号信息")}
                             title={t("编辑账号信息")}
                           >
                             <PencilLine className="h-4 w-4" />

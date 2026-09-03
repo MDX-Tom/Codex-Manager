@@ -222,6 +222,7 @@ export const KO_ACCOUNTS_MESSAGES: MessageCatalog = {
     "한도 용량은 0보다 큰 숫자여야 합니다. 비워 두면 오버라이드하지 않습니다.",
   "额度已耗尽": "한도가 소진되었습니다",
   "强制开启": "강제 활성화됨",
+  "取消强制开启": "강제 활성화 해제",
   "仅 Luna Reserve": "Luna Reserve만",
   "Luna Reserve 额度": "Luna Reserve 한도",
   "额度耗尽后仍使用账号": "한도 소진 후에도 계정 사용",

@@ -127,6 +127,7 @@ export interface QuotaProgressProps {
 
 export interface QuotaSummaryItem extends QuotaProgressProps {
   id: string;
+  resetDurationMode?: "hours" | "days";
 }
 
 export interface AccountEditorState {
@@ -217,27 +218,29 @@ function QuotaProgress({
 
 export function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
   const { t } = useI18n();
-  const summaryItems = items.slice(0, 2);
 
   return (
     <Tooltip>
       <TooltipTrigger render={<div />} className="block min-w-0 cursor-help">
         <div className="rounded-xl border border-primary/5 bg-accent/10 px-3 py-2.5">
-          <div className="flex items-center gap-3">
-            {summaryItems.map((item) => (
-              <div key={item.id} className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center justify-between text-[11px] leading-4">
+          <div className="account-pool-quota-grid">
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className="account-pool-quota-item min-w-0 rounded-lg border border-border/40 bg-background/20 p-2"
+              >
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-1 text-[11px] leading-4">
                   <span
                     className={fitLongTextClassName(
                       item.label,
-                      "min-w-0 max-w-full break-words text-muted-foreground [overflow-wrap:anywhere]",
+                      "min-w-0 break-words text-muted-foreground [overflow-wrap:anywhere]",
                       "text-[11px]",
                     )}
                     title={item.label}
                   >
                     {item.label}
                   </span>
-                  <span className="font-medium text-foreground/80">
+                  <span className="shrink-0 whitespace-nowrap font-medium text-foreground/80">
                     {item.remainPercent == null
                       ? (item.emptyText ?? "--")
                       : `${item.remainPercent}%`}
@@ -260,38 +263,32 @@ export function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
                         : "bg-green-500"
                   }
                 />
-              </div>
-            ))}
-          </div>
-          <div className="mt-1.5 grid grid-cols-2 gap-3 text-[11px] text-muted-foreground">
-            {summaryItems.map((item) => (
-              <div
-                key={`${item.id}-reset`}
-                className="min-w-0 space-y-0.5"
-              >
-                <span
-                  className={fitLongTextClassName(
-                    formatTsFromSeconds(
+                <div className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
+                  <span
+                    className={fitLongTextClassName(
+                      formatTsFromSeconds(
+                        item.resetsAt,
+                        item.emptyResetText ?? t("未知"),
+                      ),
+                      "block min-w-0 max-w-full break-all leading-tight [overflow-wrap:anywhere]",
+                      "text-[10px]",
+                    )}
+                  >
+                    {formatTsFromSeconds(
                       item.resetsAt,
                       item.emptyResetText ?? t("未知"),
-                    ),
-                    "block min-w-0 break-words leading-tight [overflow-wrap:anywhere]",
-                    "text-[11px]",
-                  )}
-                >
-                  {formatTsFromSeconds(
-                    item.resetsAt,
-                    item.emptyResetText ?? t("未知"),
-                  )}
-                </span>
-                <span className="block whitespace-nowrap leading-tight text-foreground/70">
-                  {formatRemainingDurationFromSeconds(
-                    item.resetsAt,
-                    item.id.endsWith("-primary") ? "hours" : "days",
-                    item.emptyResetText ?? t("未知"),
-                  )}
-                  {t("后刷新")}
-                </span>
+                    )}
+                  </span>
+                  <span className="block min-w-0 max-w-full break-words whitespace-normal leading-tight text-foreground/70 [overflow-wrap:anywhere]">
+                    {formatRemainingDurationFromSeconds(
+                      item.resetsAt,
+                      item.resetDurationMode ??
+                        (item.id.endsWith("-primary") ? "hours" : "days"),
+                      item.emptyResetText ?? t("未知"),
+                    )}
+                    {t("后刷新")}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -468,7 +465,7 @@ export function AccountStatusCell({ account }: { account: Account }) {
             />
             <span
               className={cn(
-                "min-w-0 max-w-full break-words whitespace-normal text-xs font-semibold leading-4",
+                "min-w-0 max-w-full break-words whitespace-normal text-xs font-semibold leading-4 [overflow-wrap:anywhere]",
                 account.isAvailable
                   ? "text-green-600 dark:text-green-400"
                   : "text-red-600 dark:text-red-400",
@@ -717,6 +714,7 @@ export function buildQuotaSummaryItems(
       caption: t("标准模型窗口"),
       emptyText: secondaryWindowOnly ? t("未提供") : "--",
       emptyResetText: secondaryWindowOnly ? t("未提供") : t("未知"),
+      resetDurationMode: "hours",
     },
     {
       id: `${account.id}-secondary`,
@@ -728,6 +726,7 @@ export function buildQuotaSummaryItems(
       caption: t("长周期窗口"),
       emptyText: primaryWindowOnly ? t("未提供") : "--",
       emptyResetText: primaryWindowOnly ? t("未提供") : t("未知"),
+      resetDurationMode: "days",
     },
     ...extraUsageRows.map((item) => ({
       id: item.id,
@@ -739,6 +738,9 @@ export function buildQuotaSummaryItems(
       caption: t(item.windowLabel, item.windowLabelValues),
       emptyText: "--",
       emptyResetText: t("未知"),
+      resetDurationMode: item.windowLabel.includes("天")
+        ? ("days" as const)
+        : ("hours" as const),
     })),
   ];
 }

@@ -4,7 +4,7 @@ use codexmanager_core::usage::{
     reset_credits_consume_endpoint, reset_credits_endpoint, usage_endpoint,
     usage_payload_declares_extra_rate_limits,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 /// 函数 `usage_snapshot_parsed`
 ///
@@ -244,4 +244,47 @@ fn nested_extra_rate_limits_are_preserved_and_explicit_empty_is_authoritative() 
             .credits_json
             .as_deref()
     ));
+
+    let mixed_followup = json!({
+        "rate_limit": { "primary_window": { "used_percent": 100.0 } },
+        "code_review_rate_limit": {
+            "primary_window": {
+                "used_percent": 0.0,
+                "limit_window_seconds": 18000
+            }
+        },
+        "additional_rate_limits": null
+    });
+    assert!(!usage_payload_declares_extra_rate_limits(&mixed_followup));
+    let merged_mixed = merge_missing_extra_rate_limits(
+        parse_usage_snapshot(&mixed_followup)
+            .credits_json
+            .as_deref(),
+        first_snapshot.credits_json.as_deref(),
+    )
+    .expect("mixed usage payload should be serialized");
+    let merged_mixed_value: Value = serde_json::from_str(&merged_mixed).expect("valid merged JSON");
+    let merged_entries = merged_mixed_value
+        .get("_codexmanager_extra_rate_limits")
+        .and_then(Value::as_array)
+        .expect("merged extra rate limits");
+    assert_eq!(merged_entries.len(), 2);
+    assert!(has_usable_luna_reserve(Some(&merged_mixed)));
+
+    let legacy_previous = json!({
+        "_codexmanager_extra_rate_limits": [],
+        "additionalRateLimits": [{
+            "limitName": "Luna Reserve",
+            "meteredFeature": "base_model_inference",
+            "rateLimit": { "primaryWindow": { "remainingPercent": 65.0 } }
+        }]
+    });
+    let merged_legacy = merge_missing_extra_rate_limits(
+        parse_usage_snapshot(&mixed_followup)
+            .credits_json
+            .as_deref(),
+        Some(&legacy_previous.to_string()),
+    )
+    .expect("legacy usage payload should be serialized");
+    assert!(has_usable_luna_reserve(Some(&merged_legacy)));
 }

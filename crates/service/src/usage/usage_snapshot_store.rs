@@ -178,6 +178,28 @@ mod tests {
         )
         .expect("store followup usage");
 
+        store_usage_snapshot(
+            &storage,
+            "acc-luna-reserve",
+            serde_json::json!({
+                "rate_limit": {
+                    "primary_window": {
+                        "used_percent": 100.0,
+                        "limit_window_seconds": 18000
+                    }
+                },
+                "code_review_rate_limit": {
+                    "primary_window": {
+                        "used_percent": 0.0,
+                        "limit_window_seconds": 18000
+                    }
+                },
+                "additional_rate_limits": null,
+                "credits": { "balance": 2.0 }
+            }),
+        )
+        .expect("store null extra usage");
+
         let latest = storage
             .latest_usage_snapshot_for_account("acc-luna-reserve")
             .expect("read latest usage")

@@ -707,6 +707,20 @@ const toggleCleanupStatus = (rawStatus: string) => {
     );
   };
 
+  const handleToggleForceEnabled = async (account: Account) => {
+    const normalizedStatus = account.status.trim().toLowerCase();
+    if (["disabled", "inactive", "unavailable", "banned"].includes(normalizedStatus)) {
+      return;
+    }
+    try {
+      await updateAccountProfile(account.id, {
+        status: normalizedStatus === "force_enabled" ? "active" : "force_enabled",
+      });
+    } catch {
+      // mutation 已统一处理 toast，这里保持菜单状态不变
+    }
+  };
+
   // 顶部/底部按全量列表定位，上移/下移仍按当前筛选结果取相邻账号。
   const resolveAccountMovePlacement = (
     account: Account,
@@ -1023,6 +1037,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
       refreshAccount={refreshAccount}
       clearPreferredAccount={clearPreferredAccount}
       setPreferredAccount={setPreferredAccount}
+      toggleForceEnabled={handleToggleForceEnabled}
       toggleAccountStatus={toggleAccountStatus}
     />
   );

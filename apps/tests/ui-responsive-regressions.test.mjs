@@ -103,10 +103,15 @@ test("wide tables retain reachable actions and visible empty states", async () =
     stylesSource,
     /\.account-pool-layout[\s\S]*grid-template-columns: minmax\(0, 1fr\) var\(--account-pool-action-width\);/,
   );
+  assert.match(stylesSource, /\.account-pool-main-pane[\s\S]*overflow-x: auto;/);
   assert.match(
     stylesSource,
-    /\.account-pool-main-table[\s\S]*table-layout: fixed;[\s\S]*width: 100%;[\s\S]*min-width: 1280px;/,
+    /\.account-pool-main-table[\s\S]*table-layout: fixed;[\s\S]*width: 100%;[\s\S]*min-width: 1216px;/,
   );
+  assert.match(stylesSource, /\.account-pool-col-quota[\s\S]*width: 300px;/);
+  assert.match(stylesSource, /\.account-pool-quota-grid[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(stylesSource, /\.account-pool-col-order[\s\S]*width: 168px;/);
+  assert.match(accountsSource, /w-\[168px\].*顺序/);
   assert.match(
     stylesSource,
     /\.account-pool-action-rail[\s\S]*position: relative;[\s\S]*z-index: 5;[\s\S]*width: var\(--account-pool-action-width\);/,

@@ -1085,13 +1085,16 @@ tr {
 
 .account-pool-main-pane {
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
 }
 
 .account-pool-main-table {
   table-layout: fixed;
   width: 100%;
-  min-width: 1280px;
+  min-width: 1216px;
 }
 
 .account-pool-col-select {
@@ -1099,16 +1102,36 @@ tr {
 }
 
 .account-pool-col-info {
-  width: 440px;
+  width: 360px;
+}
+
+.account-pool-col-quota {
+  width: 300px;
 }
 
 .account-pool-col-order {
-  width: 132px;
+  width: 168px;
 }
 
-.account-pool-col-proxy,
 .account-pool-col-status {
   width: 180px;
+}
+
+.account-pool-col-proxy {
+  width: 160px;
+}
+
+.account-pool-quota-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.account-pool-quota-item {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .account-pool-status-head,
