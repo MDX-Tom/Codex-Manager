@@ -156,6 +156,50 @@ fn latest_usage_snapshots_by_account_limited_zero_returns_empty() {
 }
 
 #[test]
+fn latest_usage_snapshot_with_extra_rate_limits_skips_empty_latest_bucket() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let now = now_ts();
+    storage
+        .insert_account(&sample_account("acc-extra-history", now))
+        .expect("insert account");
+
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "acc-extra-history".to_string(),
+            used_percent: Some(100.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: Some(100.0),
+            secondary_window_minutes: Some(10080),
+            secondary_resets_at: None,
+            credits_json: Some(
+                r#"{"_codexmanager_extra_rate_limits":[{"limit_name":"gpt-reserve"}]}"#.to_string(),
+            ),
+            captured_at: now,
+        })
+        .expect("insert extra snapshot");
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "acc-extra-history".to_string(),
+            credits_json: Some(r#"{"_codexmanager_extra_rate_limits":[]}"#.to_string()),
+            captured_at: now + 1,
+            ..sample_snapshot("acc-extra-history", now + 1, 100.0)
+        })
+        .expect("insert empty snapshot");
+
+    let recovered = storage
+        .latest_usage_snapshot_with_extra_rate_limits_for_account("acc-extra-history")
+        .expect("read extra snapshot")
+        .expect("extra snapshot exists");
+    assert_eq!(recovered.captured_at, now);
+    assert!(recovered
+        .credits_json
+        .as_deref()
+        .is_some_and(|json| json.contains("gpt-reserve")));
+}
+
+#[test]
 fn latest_usage_quota_source_rows_for_accounts_reads_only_quota_source_fields() {
     let storage = Storage::open_in_memory().expect("open");
     storage.init().expect("init");

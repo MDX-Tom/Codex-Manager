@@ -38,6 +38,19 @@ fn latest_usage_snapshot_for_account_sql() -> &'static str {
      LIMIT 1"
 }
 
+fn latest_usage_snapshot_with_extra_rate_limits_for_account_sql() -> &'static str {
+    "SELECT account_id, used_percent, window_minutes, resets_at, secondary_used_percent, secondary_window_minutes, secondary_resets_at, credits_json, captured_at
+     FROM usage_snapshots
+     WHERE account_id = ?1
+       AND CASE
+             WHEN json_valid(credits_json)
+             THEN COALESCE(json_array_length(credits_json, '$._codexmanager_extra_rate_limits'), 0)
+             ELSE 0
+           END > 0
+     ORDER BY captured_at DESC, id DESC
+     LIMIT 1"
+}
+
 fn latest_usage_snapshot_summary_rows_sql() -> String {
     format!(
         "{cte}
@@ -224,6 +237,28 @@ impl Storage {
         account_id: &str,
     ) -> Result<Option<UsageSnapshotRecord>> {
         let mut stmt = self.conn.prepare(latest_usage_snapshot_for_account_sql())?;
+        let mut rows = stmt.query([account_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(map_usage_snapshot_row(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the newest snapshot for an account that still contains at least
+    /// one normalized optional rate-limit bucket.
+    ///
+    /// A previous application version could persist an empty optional bucket
+    /// list when the upstream response temporarily returned `null`.  Keeping
+    /// this lookup account-scoped lets the service recover a still-valid
+    /// reserve bucket without mixing data between accounts.
+    pub fn latest_usage_snapshot_with_extra_rate_limits_for_account(
+        &self,
+        account_id: &str,
+    ) -> Result<Option<UsageSnapshotRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(latest_usage_snapshot_with_extra_rate_limits_for_account_sql())?;
         let mut rows = stmt.query([account_id])?;
         if let Some(row) = rows.next()? {
             Ok(Some(map_usage_snapshot_row(row)?))
