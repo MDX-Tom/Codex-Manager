@@ -556,7 +556,7 @@ function isUsableRateLimitEntry(source: Record<string, unknown>): boolean {
 function humanizeExtraRateLimitLabel(raw: string): string {
   const normalized = raw.trim().toLowerCase();
   if (!normalized) return "额外额度";
-  if (isLunaReserveIdentifier(normalized)) return "Luna Reserve 额度";
+  if (isLunaReserveIdentifier(normalized)) return "Luna Reserve";
   if (normalized.includes("spark") || normalized === "codex_other") return "Spark 额度";
   if (normalized.includes("code_review") || normalized.includes("code review")) {
     return "Code Review 额度";
@@ -603,7 +603,7 @@ function extractExtraRateLimitWindows(raw: string | null | undefined): ExtraUsag
       objectTextValue(source, ["metered_feature", "meteredFeature"]) ||
       `extra-${index + 1}`;
     const baseLabel = identifiers.some(isLunaReserveIdentifier)
-      ? "Luna Reserve 额度"
+      ? "Luna Reserve"
       : humanizeExtraRateLimitLabel(labelSeed);
     const windowContainer =
       asObjectRecord(firstObjectValue(source, ["rate_limit", "rateLimit"])) ?? source;

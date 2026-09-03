@@ -66,7 +66,7 @@ test("Luna Reserve 的 camelCase 用量会显示且保持可用", () => {
   });
   const rows = usage.getExtraUsageDisplayRows(snapshot);
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].label, "Luna Reserve 额度");
+  assert.equal(rows[0].label, "Luna Reserve");
   assert.equal(rows[0].remainPercent, 80);
 });
 

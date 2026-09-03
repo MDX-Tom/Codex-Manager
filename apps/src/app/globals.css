@@ -1094,7 +1094,7 @@ tr {
 .account-pool-main-table {
   table-layout: fixed;
   width: 100%;
-  min-width: 1216px;
+  min-width: 1206px;
 }
 
 .account-pool-col-select {
@@ -1106,18 +1106,17 @@ tr {
 }
 
 .account-pool-col-quota {
-  width: 300px;
+  width: 330px;
 }
 
 .account-pool-col-order {
   width: 168px;
 }
 
-.account-pool-col-status {
-  width: 180px;
+.account-pool-col-proxy {
 }
 
-.account-pool-col-proxy {
+.account-pool-col-status {
   width: 160px;
 }
 
