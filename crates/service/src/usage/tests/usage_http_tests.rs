@@ -796,13 +796,13 @@ fn usage_http_default_headers_follow_gateway_runtime_profile() {
 /// 无
 #[test]
 fn usage_request_headers_use_official_chatgpt_account_header_name() {
-    let headers = build_usage_request_headers(Some("workspace_123"), false);
+    let headers = build_usage_request_headers(Some("account_123"), false);
 
     assert_eq!(
         headers
             .get(CHATGPT_ACCOUNT_ID_HEADER_NAME)
             .and_then(|value| value.to_str().ok()),
-        Some("workspace_123")
+        Some("account_123")
     );
     assert_eq!(
         headers
@@ -810,7 +810,17 @@ fn usage_request_headers_use_official_chatgpt_account_header_name() {
             .and_then(|value| value.to_str().ok()),
         Some("1")
     );
-    assert_eq!(headers.len(), 2);
+    assert_eq!(
+        headers
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-cache")
+    );
+    assert_eq!(
+        headers.get("pragma").and_then(|value| value.to_str().ok()),
+        Some("no-cache")
+    );
+    assert_eq!(headers.len(), 4);
 }
 
 #[test]
@@ -824,7 +834,13 @@ fn usage_request_headers_include_fedramp_context_when_enabled() {
         Some("true")
     );
     assert!(headers.get("x-openai-codex-luna-reserve").is_none());
-    assert_eq!(headers.len(), 2);
+    assert_eq!(
+        headers
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-cache")
+    );
+    assert_eq!(headers.len(), 4);
 }
 
 #[test]
@@ -1138,6 +1154,8 @@ fn fetch_usage_snapshot_with_explicit_proxy_uses_explicit_proxy_before_global_pr
     assert!(request.contains("authorization: bearer token_123"));
     assert!(request.contains("chatgpt-account-id: workspace_123"));
     assert!(request.contains("x-openai-codex-luna-reserve: 1"));
+    assert!(request.contains("cache-control: no-cache"));
+    assert!(request.contains("pragma: no-cache"));
     assert_eq!(snapshot["gpt4"]["usedPercent"], 12.5);
 }
 

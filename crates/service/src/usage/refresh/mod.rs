@@ -816,25 +816,30 @@ fn refresh_account_snapshot(
             .map_err(|err| format!("store account subscription failed: {err}"))?;
     }
 
+    // The usage endpoint expects the ChatGPT account UUID in
+    // `ChatGPT-Account-ID`.  `workspace_id` is still used for the
+    // subscription lookup above, but it must not replace the account UUID
+    // when a token-derived account identity is available.
+    let usage_account_id = resolve_usage_account_id(subscription_account_id, workspace_id);
     log_account_data_route("usage", account_id, &proxy_mode, "usage", true);
     let value = match &proxy_mode {
         crate::account_proxy::AccountProxyMode::Disabled if is_fedramp => {
-            fetch_usage_snapshot_with_auth_context(base_url, bearer, workspace_id, is_fedramp)?
+            fetch_usage_snapshot_with_auth_context(base_url, bearer, usage_account_id, is_fedramp)?
         }
         crate::account_proxy::AccountProxyMode::Disabled => {
-            fetch_usage_snapshot(base_url, bearer, workspace_id)?
+            fetch_usage_snapshot(base_url, bearer, usage_account_id)?
         }
         crate::account_proxy::AccountProxyMode::Explicit { proxy_url, .. } if is_fedramp => {
             fetch_usage_snapshot_with_auth_context_and_explicit_proxy(
                 base_url,
                 bearer,
-                workspace_id,
+                usage_account_id,
                 is_fedramp,
                 proxy_url,
             )?
         }
         crate::account_proxy::AccountProxyMode::Explicit { proxy_url, .. } => {
-            fetch_usage_snapshot_with_explicit_proxy(base_url, bearer, workspace_id, proxy_url)?
+            fetch_usage_snapshot_with_explicit_proxy(base_url, bearer, usage_account_id, proxy_url)?
         }
         crate::account_proxy::AccountProxyMode::Invalid { error, .. } => {
             return Err(error.clone());
@@ -842,6 +847,20 @@ fn refresh_account_snapshot(
     };
     let stored = store_usage_snapshot(storage, account_id, value)?;
     Ok(classify_usage_status_from_snapshot_record(&stored))
+}
+
+fn resolve_usage_account_id<'a>(
+    chatgpt_account_id: Option<&'a str>,
+    workspace_id: Option<&'a str>,
+) -> Option<&'a str> {
+    chatgpt_account_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            workspace_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
 }
 
 #[cfg(test)]

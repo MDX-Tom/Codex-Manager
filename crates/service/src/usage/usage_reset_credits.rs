@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::storage_helpers::open_storage;
-use crate::usage_account_meta::{derive_account_meta, resolve_workspace_id_for_account};
+use crate::usage_account_meta::{
+    clean_header_value, derive_account_meta, resolve_workspace_id_for_account,
+};
 use crate::usage_http::{
     consume_reset_credit_request, consume_reset_credit_request_with_explicit_proxy,
     fetch_reset_credits_snapshot, fetch_reset_credits_snapshot_with_explicit_proxy,
@@ -44,11 +46,18 @@ fn load_token(storage: &Storage, account_id: &str) -> Result<Token, String> {
     Ok(token)
 }
 
-fn resolve_workspace_header(storage: &Storage, token: &Token) -> Option<String> {
-    resolve_workspace_id_for_account(storage, &token.account_id).or_else(|| {
-        let (chatgpt_account_id, workspace_id) = derive_account_meta(token);
-        workspace_id.or(chatgpt_account_id)
-    })
+fn resolve_account_header(storage: &Storage, token: &Token) -> Option<String> {
+    let (token_chatgpt_account_id, token_workspace_id) = derive_account_meta(token);
+    clean_header_value(token_chatgpt_account_id)
+        .or_else(|| {
+            storage
+                .find_account_workspace_identity_by_id(&token.account_id)
+                .ok()
+                .flatten()
+                .and_then(|identity| clean_header_value(identity.chatgpt_account_id))
+        })
+        .or(token_workspace_id)
+        .or_else(|| resolve_workspace_id_for_account(storage, &token.account_id))
 }
 
 fn refresh_token_for_reset(storage: &Storage, token: &mut Token) -> Result<(), String> {
@@ -79,7 +88,7 @@ fn fetch_snapshot_for_account(
     account_id: &str,
     base_url: &str,
     bearer: &str,
-    workspace_id: Option<&str>,
+    chatgpt_account_id: Option<&str>,
 ) -> Result<ResetCreditsSnapshot, UsageActionHttpError> {
     let proxy_mode = crate::account_proxy::resolve_account_proxy_mode(account_id);
     log_account_data_route(
@@ -91,13 +100,13 @@ fn fetch_snapshot_for_account(
     );
     match &proxy_mode {
         crate::account_proxy::AccountProxyMode::Disabled => {
-            fetch_reset_credits_snapshot(base_url, bearer, workspace_id)
+            fetch_reset_credits_snapshot(base_url, bearer, chatgpt_account_id)
         }
         crate::account_proxy::AccountProxyMode::Explicit { proxy_url, .. } => {
             fetch_reset_credits_snapshot_with_explicit_proxy(
                 base_url,
                 bearer,
-                workspace_id,
+                chatgpt_account_id,
                 proxy_url,
             )
         }
@@ -111,7 +120,7 @@ fn consume_for_account(
     account_id: &str,
     base_url: &str,
     bearer: &str,
-    workspace_id: Option<&str>,
+    chatgpt_account_id: Option<&str>,
     redeem_request_id: &str,
 ) -> Result<(), UsageActionHttpError> {
     let proxy_mode = crate::account_proxy::resolve_account_proxy_mode(account_id);
@@ -124,13 +133,13 @@ fn consume_for_account(
     );
     match &proxy_mode {
         crate::account_proxy::AccountProxyMode::Disabled => {
-            consume_reset_credit_request(base_url, bearer, workspace_id, redeem_request_id)
+            consume_reset_credit_request(base_url, bearer, chatgpt_account_id, redeem_request_id)
         }
         crate::account_proxy::AccountProxyMode::Explicit { proxy_url, .. } => {
             consume_reset_credit_request_with_explicit_proxy(
                 base_url,
                 bearer,
-                workspace_id,
+                chatgpt_account_id,
                 redeem_request_id,
                 proxy_url,
             )
@@ -146,22 +155,22 @@ fn fetch_snapshot_with_retry(
     token: &mut Token,
 ) -> Result<ResetCreditsSnapshot, String> {
     let base_url = usage_base_url();
-    let mut workspace_id = resolve_workspace_header(storage, token);
+    let mut chatgpt_account_id = resolve_account_header(storage, token);
     match fetch_snapshot_for_account(
         token.account_id.as_str(),
         &base_url,
         &token.access_token,
-        workspace_id.as_deref(),
+        chatgpt_account_id.as_deref(),
     ) {
         Ok(snapshot) => Ok(snapshot),
         Err(error) if error.is_unauthorized() => {
             refresh_token_for_reset(storage, token)?;
-            workspace_id = resolve_workspace_header(storage, token);
+            chatgpt_account_id = resolve_account_header(storage, token);
             fetch_snapshot_for_account(
                 token.account_id.as_str(),
                 &base_url,
                 &token.access_token,
-                workspace_id.as_deref(),
+                chatgpt_account_id.as_deref(),
             )
             .map_err(|retry_error| retry_error.message)
         }
@@ -175,23 +184,23 @@ fn consume_with_retry(
     redeem_request_id: &str,
 ) -> Result<(), String> {
     let base_url = usage_base_url();
-    let mut workspace_id = resolve_workspace_header(storage, token);
+    let mut chatgpt_account_id = resolve_account_header(storage, token);
     match consume_for_account(
         token.account_id.as_str(),
         &base_url,
         &token.access_token,
-        workspace_id.as_deref(),
+        chatgpt_account_id.as_deref(),
         redeem_request_id,
     ) {
         Ok(()) => Ok(()),
         Err(error) if error.is_unauthorized() => {
             refresh_token_for_reset(storage, token)?;
-            workspace_id = resolve_workspace_header(storage, token);
+            chatgpt_account_id = resolve_account_header(storage, token);
             consume_for_account(
                 token.account_id.as_str(),
                 &base_url,
                 &token.access_token,
-                workspace_id.as_deref(),
+                chatgpt_account_id.as_deref(),
                 redeem_request_id,
             )
             .map_err(|retry_error| retry_error.message)
@@ -264,7 +273,8 @@ pub(crate) fn consume_reset_credit(account_id: &str) -> Result<ResetCreditConsum
 
 #[cfg(test)]
 mod tests {
-    use super::{random_uuid_v4, RESET_CREDIT_LOCK_POISONED_MESSAGE};
+    use super::{random_uuid_v4, resolve_account_header, RESET_CREDIT_LOCK_POISONED_MESSAGE};
+    use codexmanager_core::storage::{now_ts, Account, Storage, Token};
 
     #[test]
     fn generated_redeem_request_id_is_uuid_v4() {
@@ -283,5 +293,40 @@ mod tests {
         assert!(RESET_CREDIT_LOCK_POISONED_MESSAGE.contains("restart CodexManager"));
         assert!(RESET_CREDIT_LOCK_POISONED_MESSAGE.contains("verify"));
         assert!(RESET_CREDIT_LOCK_POISONED_MESSAGE.contains("then retry"));
+    }
+
+    #[test]
+    fn reset_credit_header_prefers_stored_chatgpt_account_id() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        let now = now_ts();
+        storage
+            .insert_account(&Account {
+                id: "acc-reset-header".to_string(),
+                label: "reset-header".to_string(),
+                issuer: "issuer".to_string(),
+                chatgpt_account_id: Some("chatgpt-account".to_string()),
+                workspace_id: Some("workspace".to_string()),
+                group_name: None,
+                sort: 0,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert account");
+
+        let header = resolve_account_header(
+            &storage,
+            &Token {
+                account_id: "acc-reset-header".to_string(),
+                id_token: String::new(),
+                access_token: String::new(),
+                refresh_token: String::new(),
+                api_key_access_token: None,
+                last_refresh: now,
+            },
+        );
+
+        assert_eq!(header.as_deref(), Some("chatgpt-account"));
     }
 }

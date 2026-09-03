@@ -1,6 +1,7 @@
 use super::{
     classify_usage_status_from_snapshot_value, mark_usage_unreachable_if_needed,
-    record_usage_refresh_failure, should_retry_with_refresh, UsageAvailabilityStatus,
+    record_usage_refresh_failure, resolve_usage_account_id, should_retry_with_refresh,
+    UsageAvailabilityStatus,
 };
 use crate::account_availability::Availability;
 use crate::account_status::{
@@ -35,6 +36,18 @@ fn usage_refresh_classifies_luna_reserve_as_available_after_standard_exhaustion(
 
     assert_eq!(status, UsageAvailabilityStatus::AvailableLunaReserve);
     assert_eq!(status.as_code(), "available_luna_reserve");
+}
+
+#[test]
+fn usage_refresh_prefers_chatgpt_account_id_over_workspace_fallback() {
+    assert_eq!(
+        resolve_usage_account_id(Some(" chatgpt-account "), Some("workspace")),
+        Some("chatgpt-account")
+    );
+    assert_eq!(
+        resolve_usage_account_id(Some("  "), Some(" workspace ")),
+        Some("workspace")
+    );
 }
 
 /// 函数 `unique_id`
