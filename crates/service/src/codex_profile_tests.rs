@@ -453,6 +453,8 @@ fn list_candidates_uses_active_account_projection_and_usable_tokens() {
     active.group_name = Some("candidate-group".to_string());
     let mut disabled = test_account("acc-disabled-candidate", "disabled");
     disabled.label = "Disabled Candidate".to_string();
+    let mut force_enabled = test_account("acc-force-candidate", "force_enabled");
+    force_enabled.label = "Force Candidate".to_string();
     storage
         .insert_account(&active)
         .expect("insert active account");
@@ -460,11 +462,17 @@ fn list_candidates_uses_active_account_projection_and_usable_tokens() {
         .insert_account(&disabled)
         .expect("insert disabled account");
     storage
+        .insert_account(&force_enabled)
+        .expect("insert force-enabled account");
+    storage
         .insert_token(&test_token("acc-active-candidate", "access", "refresh"))
         .expect("insert active token");
     storage
         .insert_token(&test_token("acc-disabled-candidate", "access", "refresh"))
         .expect("insert disabled token");
+    storage
+        .insert_token(&test_token("acc-force-candidate", "access", "refresh"))
+        .expect("insert force-enabled token");
     storage
         .insert_account(&test_account("acc-missing-refresh", "active"))
         .expect("insert missing refresh account");
@@ -475,7 +483,7 @@ fn list_candidates_uses_active_account_projection_and_usable_tokens() {
 
     let result = list_candidates().expect("list candidates");
 
-    assert_eq!(result.accounts.len(), 1);
+    assert_eq!(result.accounts.len(), 2);
     let account = &result.accounts[0];
     assert_eq!(account.id, "acc-active-candidate");
     assert_eq!(account.label, "Active Candidate");
@@ -491,6 +499,9 @@ fn list_candidates_uses_active_account_projection_and_usable_tokens() {
     );
     assert_eq!(account.issuer, "issuer-acc-active-candidate");
     assert_eq!(account.last_refresh, 123);
+    let force_account = &result.accounts[1];
+    assert_eq!(force_account.id, "acc-force-candidate");
+    assert_eq!(force_account.status, "force_enabled");
     cleanup_profile(&dir);
 }
 

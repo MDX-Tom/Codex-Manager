@@ -69,6 +69,18 @@ pub(crate) fn update_account(
     }
 
     let mut storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    if normalized_status == Some("force_enabled") {
+        let current_status = storage
+            .find_account_status_by_id(normalized_account_id)
+            .map_err(|err| err.to_string())?
+            .unwrap_or_default();
+        if ["disabled", "inactive", "unavailable", "banned"]
+            .iter()
+            .any(|status| current_status.trim().eq_ignore_ascii_case(status))
+        {
+            return Err("account status must be active before force enabling".to_string());
+        }
+    }
     let now = now_ts();
     if let Some(preferred) = preferred {
         if preferred {
@@ -109,6 +121,8 @@ pub(crate) fn update_account(
     if let Some(status) = normalized_status {
         let reason = if status == "disabled" {
             "manual_disable"
+        } else if status == "force_enabled" {
+            "manual_force_enable"
         } else {
             "manual_enable"
         };
@@ -237,6 +251,7 @@ fn normalize_account_status(status: &str) -> Result<&'static str, String> {
     let normalized = status.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "active" => Ok("active"),
+        "force_enabled" => Ok("force_enabled"),
         "disabled" | "inactive" => Ok("disabled"),
         _ => Err(format!("unsupported account status: {status}")),
     }

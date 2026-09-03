@@ -1,5 +1,6 @@
 use codexmanager_core::rpc::types::UsageSnapshotResult;
 use codexmanager_core::storage::UsageSnapshotRecord;
+use codexmanager_core::usage::has_usable_luna_reserve;
 
 use crate::storage_helpers::open_storage;
 
@@ -52,7 +53,11 @@ fn classify_availability_status(snap: &UsageSnapshotRecord) -> &'static str {
         .map(|value| value >= 100.0)
         .unwrap_or(false)
     {
-        return "unavailable";
+        return if has_usable_luna_reserve(snap.credits_json.as_deref()) {
+            "available_luna_reserve"
+        } else {
+            "unavailable"
+        };
     }
 
     let secondary_present =
@@ -73,7 +78,11 @@ fn classify_availability_status(snap: &UsageSnapshotRecord) -> &'static str {
         .map(|value| value >= 100.0)
         .unwrap_or(false)
     {
-        return "unavailable";
+        return if has_usable_luna_reserve(snap.credits_json.as_deref()) {
+            "available_luna_reserve"
+        } else {
+            "unavailable"
+        };
     }
     "available"
 }
@@ -100,4 +109,32 @@ pub(crate) fn read_usage_snapshot(account_id: Option<&str>) -> Option<UsageSnaps
         None => storage.latest_usage_snapshot().ok().flatten(),
     }?;
     Some(usage_snapshot_result_from_record(snap))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::usage_snapshot_result_from_record;
+    use codexmanager_core::storage::UsageSnapshotRecord;
+
+    #[test]
+    fn usage_read_exposes_luna_reserve_availability() {
+        let result = usage_snapshot_result_from_record(UsageSnapshotRecord {
+            account_id: "acc-luna-reserve".to_string(),
+            used_percent: Some(100.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: Some(100.0),
+            secondary_window_minutes: Some(10080),
+            secondary_resets_at: None,
+            credits_json: Some(
+                r#"{"_codexmanager_extra_rate_limits":[{"metered_feature":"base_model_inference","primary_window":{"used_percent":10.0}}]}"#.to_string(),
+            ),
+            captured_at: 1,
+        });
+
+        assert_eq!(
+            result.availability_status.as_deref(),
+            Some("available_luna_reserve")
+        );
+    }
 }

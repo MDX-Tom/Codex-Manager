@@ -140,6 +140,7 @@ export default function AccountsPage() {
   const [tagsDraft, setTagsDraft] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
   const [sortDraft, setSortDraft] = useState("");
+  const [forceEnabledDraft, setForceEnabledDraft] = useState(false);
   const [quotaPrimaryDraft, setQuotaPrimaryDraft] = useState("");
   const [quotaSecondaryDraft, setQuotaSecondaryDraft] = useState("");
   const [proxyDialogAccount, setProxyDialogAccount] = useState<Account | null>(null);
@@ -684,6 +685,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
       currentTags: account.tags.join(", "),
       currentNote: account.note || "",
       currentSort: account.priority,
+      currentForceEnabled: account.status.trim().toLowerCase() === "force_enabled",
       currentQuotaPrimaryWindowTokens: account.quotaCapacityPrimaryWindowTokens,
       currentQuotaSecondaryWindowTokens: account.quotaCapacitySecondaryWindowTokens,
     });
@@ -692,6 +694,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
     setTagsDraft(account.tags.join(", "));
     setNoteDraft(account.note || "");
     setSortDraft(String(account.priority));
+    setForceEnabledDraft(account.status.trim().toLowerCase() === "force_enabled");
     setQuotaPrimaryDraft(
       account.quotaCapacityPrimaryWindowTokens == null
         ? ""
@@ -848,6 +851,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
       nextTagsText === accountEditorState.currentTags &&
       nextNote === accountEditorState.currentNote &&
       nextSort === accountEditorState.currentSort &&
+      forceEnabledDraft === accountEditorState.currentForceEnabled &&
       nextPrimaryCapacity === accountEditorState.currentQuotaPrimaryWindowTokens &&
       nextSecondaryCapacity === accountEditorState.currentQuotaSecondaryWindowTokens
     ) {
@@ -862,6 +866,12 @@ const toggleCleanupStatus = (rawStatus: string) => {
         note: nextNote || null,
         tags: nextTags,
         sort: nextSort,
+        status:
+          forceEnabledDraft === accountEditorState.currentForceEnabled
+            ? undefined
+            : forceEnabledDraft
+              ? "force_enabled"
+              : "active",
         quotaCapacityPrimaryWindowTokens: nextPrimaryCapacity ?? 0,
         quotaCapacitySecondaryWindowTokens: nextSecondaryCapacity ?? 0,
       });
@@ -930,6 +940,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
       tagsDraft={tagsDraft}
       noteDraft={noteDraft}
       sortDraft={sortDraft}
+      forceEnabledDraft={forceEnabledDraft}
       quotaPrimaryDraft={quotaPrimaryDraft}
       quotaSecondaryDraft={quotaSecondaryDraft}
       isRefreshingAllAccounts={isRefreshingAllAccounts}
@@ -968,6 +979,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
       setTagsDraft={setTagsDraft}
       setNoteDraft={setNoteDraft}
       setSortDraft={setSortDraft}
+      setForceEnabledDraft={setForceEnabledDraft}
       setQuotaPrimaryDraft={setQuotaPrimaryDraft}
       setQuotaSecondaryDraft={setQuotaSecondaryDraft}
       setPage={setPage}

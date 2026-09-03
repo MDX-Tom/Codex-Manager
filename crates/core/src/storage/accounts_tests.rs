@@ -841,11 +841,14 @@ fn list_available_account_quota_pool_sources_filters_and_reads_only_id_label() {
     second.label = "Second Pool".to_string();
     second.sort = 0;
     second.workspace_id = Some("ignored-workspace".to_string());
+    let mut force_enabled = sample_account("acc-force-enabled-pool-source", "force_enabled", now);
+    force_enabled.label = "Force Pool".to_string();
+    force_enabled.sort = 2;
     let mut disabled = sample_account("acc-disabled-pool-source", "disabled", now);
     disabled.label = "Disabled Pool".to_string();
     disabled.sort = -1;
 
-    for account in [&first, &second, &disabled] {
+    for account in [&first, &second, &force_enabled, &disabled] {
         storage.insert_account(account).expect("insert account");
     }
 
@@ -853,11 +856,13 @@ fn list_available_account_quota_pool_sources_filters_and_reads_only_id_label() {
         .list_available_account_quota_pool_sources()
         .expect("list account quota pool sources");
 
-    assert_eq!(sources.len(), 2);
+    assert_eq!(sources.len(), 3);
     assert_eq!(sources[0].id, "acc-second-pool-source");
     assert_eq!(sources[0].label, "Second Pool");
     assert_eq!(sources[1].id, "acc-first-pool-source");
     assert_eq!(sources[1].label, "First Pool");
+    assert_eq!(sources[2].id, "acc-force-enabled-pool-source");
+    assert_eq!(sources[2].label, "Force Pool");
 }
 
 #[test]
@@ -1925,7 +1930,14 @@ fn list_active_account_codex_profile_candidates_for_ids_filters_active_and_reads
     let mut disabled = sample_account("acc-disabled-codex-profile", "disabled", now);
     disabled.label = "Disabled Codex".to_string();
     disabled.sort = -1;
-    for account in [&first, &second, &disabled] {
+    let mut force_enabled = sample_account("acc-force-codex-profile", "force_enabled", now);
+    force_enabled.label = "Force Codex".to_string();
+    force_enabled.issuer = "issuer-force".to_string();
+    force_enabled.chatgpt_account_id = Some("cgpt-force".to_string());
+    force_enabled.workspace_id = Some("ws-force".to_string());
+    force_enabled.group_name = Some("group-force".to_string());
+    force_enabled.sort = 2;
+    for account in [&first, &second, &disabled, &force_enabled] {
         storage.insert_account(account).expect("insert account");
     }
 
@@ -1934,10 +1946,11 @@ fn list_active_account_codex_profile_candidates_for_ids_filters_active_and_reads
             "acc-disabled-codex-profile".to_string(),
             "acc-first-codex-profile".to_string(),
             "acc-second-codex-profile".to_string(),
+            "acc-force-codex-profile".to_string(),
         ])
         .expect("list codex profile account candidates");
 
-    assert_eq!(targets.len(), 2);
+    assert_eq!(targets.len(), 3);
     assert_eq!(targets[0].id, "acc-second-codex-profile");
     assert_eq!(targets[0].label, "Second Codex");
     assert_eq!(targets[0].issuer, "issuer-second");
@@ -1951,6 +1964,9 @@ fn list_active_account_codex_profile_candidates_for_ids_filters_active_and_reads
     assert_eq!(targets[1].id, "acc-first-codex-profile");
     assert_eq!(targets[1].label, "First Codex");
     assert_eq!(targets[1].issuer, "issuer-first");
+    assert_eq!(targets[2].id, "acc-force-codex-profile");
+    assert_eq!(targets[2].label, "Force Codex");
+    assert_eq!(targets[2].status, "force_enabled");
 }
 
 #[test]
@@ -2340,6 +2356,56 @@ fn list_gateway_candidates_for_accounts_filters_requested_available_accounts() {
             .map(|(account, _token)| account.id)
             .collect::<Vec<_>>(),
         vec!["acc-second".to_string(), "acc-first".to_string()]
+    );
+}
+
+#[test]
+fn list_gateway_candidates_force_enabled_bypasses_usage_window_filter() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let now = now_ts();
+    let force_enabled = sample_account("acc-force-enabled", "force_enabled", now);
+    let limited = sample_account("acc-limited", "limited", now);
+    for account in [&force_enabled, &limited] {
+        storage.insert_account(account).expect("insert account");
+        storage
+            .insert_token(&sample_token(account.id.as_str(), now))
+            .expect("insert token");
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: account.id.clone(),
+                used_percent: Some(100.0),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: Some(100.0),
+                secondary_window_minutes: Some(10080),
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now,
+            })
+            .expect("insert saturated usage");
+    }
+
+    let normal = storage
+        .list_gateway_candidates()
+        .expect("list normal gateway candidates");
+    assert_eq!(
+        normal
+            .iter()
+            .map(|(account, _)| account.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["acc-force-enabled"]
+    );
+
+    let unfiltered = storage
+        .list_gateway_candidates_unfiltered()
+        .expect("list unfiltered gateway candidates");
+    assert_eq!(
+        unfiltered
+            .iter()
+            .map(|(account, _)| account.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["acc-force-enabled", "acc-limited"]
     );
 }
 

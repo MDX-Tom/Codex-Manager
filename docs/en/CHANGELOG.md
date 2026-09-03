@@ -5,6 +5,15 @@ It follows Keep a Changelog with a lightweight adaptation for this repository.
 
 ## [Unreleased]
 
+### Added
+
+- Added a **Keep using account after quota exhaustion** switch to the account editor. It persists as `force_enabled`, is off by default, and keeps the account in the gateway candidate pool for manual quota handling.
+
+### Fixed
+
+- Fixed Luna Reserve usage disappearing from the account page after later refreshes or transient empty-list responses, and normalized both snake_case and camelCase additional-quota payloads.
+- Fixed accounts with an exhausted standard 5-hour/7-day window but usable Luna Reserve being marked limited and omitted from the `gpt-5.6-luna` candidate pool; hard authorization or deactivation states retain their existing handling.
+
 ## [0.5.6] - 2026-09-02
 
 ### Added

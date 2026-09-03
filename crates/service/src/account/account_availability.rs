@@ -1,4 +1,5 @@
 use codexmanager_core::storage::UsageSnapshotRecord;
+use codexmanager_core::usage::has_usable_luna_reserve;
 
 pub(crate) enum Availability {
     Available,
@@ -26,11 +27,17 @@ pub(crate) fn evaluate_snapshot(snap: &UsageSnapshotRecord) -> Availability {
     // 这样可以避免快照字段短暂不完整时误伤仍有额度的账号。
     if let Some(value) = snap.used_percent {
         if value >= 100.0 {
+            if has_usable_luna_reserve(snap.credits_json.as_deref()) {
+                return Availability::Available;
+            }
             return Availability::Unavailable("usage_exhausted_primary");
         }
     }
     if let Some(value) = snap.secondary_used_percent {
         if value >= 100.0 {
+            if has_usable_luna_reserve(snap.credits_json.as_deref()) {
+                return Availability::Available;
+            }
             return Availability::Unavailable("usage_exhausted_secondary");
         }
     }

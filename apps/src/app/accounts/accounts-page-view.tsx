@@ -175,6 +175,7 @@ export interface AccountsPageViewProps {
   tagsDraft: string;
   noteDraft: string;
   sortDraft: string;
+  forceEnabledDraft: boolean;
   quotaPrimaryDraft: string;
   quotaSecondaryDraft: string;
   isRefreshingAllAccounts: boolean;
@@ -213,6 +214,7 @@ export interface AccountsPageViewProps {
   setTagsDraft: Dispatch<SetStateAction<string>>;
   setNoteDraft: Dispatch<SetStateAction<string>>;
   setSortDraft: Dispatch<SetStateAction<string>>;
+  setForceEnabledDraft: Dispatch<SetStateAction<boolean>>;
   setQuotaPrimaryDraft: Dispatch<SetStateAction<string>>;
   setQuotaSecondaryDraft: Dispatch<SetStateAction<string>>;
   setPage: Dispatch<SetStateAction<number>>;
@@ -307,6 +309,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     tagsDraft,
     noteDraft,
     sortDraft,
+    forceEnabledDraft,
     quotaPrimaryDraft,
     quotaSecondaryDraft,
     isRefreshingAllAccounts,
@@ -343,6 +346,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     setTagsDraft,
     setNoteDraft,
     setSortDraft,
+    setForceEnabledDraft,
     setQuotaPrimaryDraft,
     setQuotaSecondaryDraft,
     setPage,
@@ -387,6 +391,9 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     toggleAccountStatus,
   } = props;
 
+  const forceToggleBlocked = ["disabled", "inactive", "unavailable", "banned"].includes(
+    String(currentEditingAccount?.status || "").trim().toLowerCase(),
+  );
   const accountProxyBusy =
     isProxySettingsLoading || isSavingAccountProxy || isClearingAccountProxy;
   const selectedProxyProfile =
@@ -1723,6 +1730,23 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                   placeholder={t("留空使用计划模板")}
                 />
               </div>
+            </div>
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-3">
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="account-force-enabled-switch">
+                  {t("额度耗尽后仍使用账号")}
+                </Label>
+                <p className="text-[11px] leading-4 text-muted-foreground">
+                  {t("开启后忽略 5h/7d 耗尽状态，继续把该账号加入网关候选；默认关闭。")}
+                </p>
+              </div>
+              <Switch
+                id="account-force-enabled-switch"
+                aria-label={t("额度耗尽后仍使用账号")}
+                checked={forceEnabledDraft}
+                disabled={Boolean(isUpdatingProfileAccountId) || forceToggleBlocked}
+                onCheckedChange={setForceEnabledDraft}
+              />
             </div>
             <div className="grid gap-3 rounded-xl bg-muted/20 px-3 py-3 text-[11px] text-muted-foreground sm:grid-cols-2">
               <div className="space-y-1">

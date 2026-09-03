@@ -64,6 +64,27 @@ fn insert_usage_snapshot(
     crate::gateway::invalidate_candidate_cache();
 }
 
+fn insert_saturated_usage_snapshot(
+    storage: &Storage,
+    account_id: &str,
+    credits_json: Option<&str>,
+) {
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: account_id.to_string(),
+            used_percent: Some(100.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: Some(100.0),
+            secondary_window_minutes: Some(10080),
+            secondary_resets_at: None,
+            credits_json: credits_json.map(str::to_string),
+            captured_at: now_ts(),
+        })
+        .expect("insert saturated usage snapshot");
+    crate::gateway::invalidate_candidate_cache();
+}
+
 struct QuotaGuardReset(crate::gateway::QuotaGuardConfig);
 
 impl Drop for QuotaGuardReset {
@@ -325,6 +346,72 @@ fn free_account_model_ceiling_treats_unknown_request_models_as_above_ceiling() {
 
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].0.id, "acc-plus-unknown");
+}
+
+#[test]
+fn luna_reserve_and_force_enabled_accounts_survive_exhausted_standard_windows() {
+    let _guard = crate::test_env_guard();
+    let _free_model_reset =
+        FreeAccountMaxModelReset(crate::gateway::current_free_account_max_model());
+    crate::gateway::set_free_account_max_model("auto").expect("disable free model ceiling");
+    let previous_quota_guard = crate::gateway::current_quota_guard_config();
+    let _quota_guard_reset = QuotaGuardReset(previous_quota_guard);
+    crate::gateway::set_quota_guard_config(crate::gateway::QuotaGuardConfig {
+        enabled: false,
+        primary_min_remaining_percent: 0.0,
+        secondary_min_remaining_percent: 0.0,
+        allow_all_low_quota_fallback: false,
+    });
+
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    insert_active_account_with_token(&storage, "acc-luna-reserve", 0);
+    insert_active_account_with_token(&storage, "acc-force-enabled", 1);
+    insert_active_account_with_token(&storage, "acc-exhausted", 2);
+    storage
+        .update_account_status("acc-force-enabled", "force_enabled")
+        .expect("mark force enabled");
+    insert_saturated_usage_snapshot(
+        &storage,
+        "acc-luna-reserve",
+        Some(
+            r#"{"_codexmanager_extra_rate_limits":[{"metered_feature":"base_model_inference","primary_window":{"used_percent":10.0}}]}"#,
+        ),
+    );
+    insert_saturated_usage_snapshot(&storage, "acc-force-enabled", None);
+    insert_saturated_usage_snapshot(&storage, "acc-exhausted", None);
+
+    let luna_candidates = super::prepare_gateway_candidates(
+        &storage,
+        Some("gpt-5.6-luna"),
+        None,
+        None,
+        crate::gateway::LowQuotaCandidateMode::NormalOnly,
+    )
+    .expect("prepare Luna Reserve candidates");
+    assert_eq!(
+        luna_candidates
+            .iter()
+            .map(|(account, _)| account.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["acc-force-enabled", "acc-luna-reserve"]
+    );
+
+    let standard_candidates = super::prepare_gateway_candidates(
+        &storage,
+        Some("gpt-5.4"),
+        None,
+        None,
+        crate::gateway::LowQuotaCandidateMode::NormalOnly,
+    )
+    .expect("prepare standard candidates");
+    assert_eq!(
+        standard_candidates
+            .iter()
+            .map(|(account, _)| account.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["acc-force-enabled"]
+    );
 }
 
 fn upsert_account_source_model(storage: &Storage, account_id: &str, upstream_model: &str) {

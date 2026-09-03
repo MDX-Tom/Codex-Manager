@@ -128,7 +128,10 @@ fn remaining_percent(used_percent: Option<f64>) -> Option<f64> {
 }
 
 fn account_source_is_available(account: &AccountQuotaSourceSummary) -> bool {
-    matches!(account.status.as_str(), "active" | "available")
+    matches!(
+        account.status.as_str(),
+        "active" | "available" | "force_enabled"
+    )
 }
 
 fn aggregate_source_display_name(api: &AggregateApiQuotaSourceSummary) -> String {

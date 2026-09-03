@@ -138,6 +138,20 @@ fn should_preserve_manual_account_status(storage: &Storage, account_id: &str) ->
         .unwrap_or(false)
 }
 
+fn should_preserve_usage_limit_status(storage: &Storage, account_id: &str) -> bool {
+    storage
+        .find_account_status_by_id(account_id)
+        .ok()
+        .flatten()
+        .map(|status| {
+            let normalized = status.trim();
+            normalized.eq_ignore_ascii_case("disabled")
+                || normalized.eq_ignore_ascii_case("inactive")
+                || normalized.eq_ignore_ascii_case("force_enabled")
+        })
+        .unwrap_or(false)
+}
+
 /// 函数 `classify_account_availability_signal`
 ///
 /// 作者: gaohongshun
@@ -323,7 +337,7 @@ fn set_account_unavailable_with_reason(storage: &Storage, account_id: &str, reas
 }
 
 fn set_account_limited_with_reason(storage: &Storage, account_id: &str, reason: &str) -> bool {
-    if should_preserve_manual_account_status(storage, account_id) {
+    if should_preserve_usage_limit_status(storage, account_id) {
         return false;
     }
     set_account_status(storage, account_id, "limited", reason);
@@ -542,6 +556,9 @@ fn set_account_status_after_test_if_context_matches(
 ) -> bool {
     let normalized = context.status.trim().to_ascii_lowercase();
     if matches!(normalized.as_str(), "disabled" | "inactive" | "banned") {
+        return false;
+    }
+    if normalized == "force_enabled" && status == "limited" {
         return false;
     }
     if load_account_status_context(storage, account_id) != *context {

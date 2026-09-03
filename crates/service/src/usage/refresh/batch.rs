@@ -205,10 +205,17 @@ fn load_refreshable_usage_refresh_tasks(
 }
 
 fn refreshable_account_statuses() -> Vec<String> {
-    ["active", "inactive", "limited", "unavailable", "unknown"]
-        .into_iter()
-        .map(String::from)
-        .collect()
+    [
+        "active",
+        "inactive",
+        "limited",
+        "unavailable",
+        "unknown",
+        "force_enabled",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }
 
 #[derive(Clone)]

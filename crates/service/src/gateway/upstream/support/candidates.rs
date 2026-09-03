@@ -1,5 +1,8 @@
-use codexmanager_core::storage::{Account, Storage, Token, UsageSnapshotRecord};
-use std::collections::HashMap;
+use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
+use codexmanager_core::usage::{has_usable_luna_reserve, is_luna_reserve_model};
+use std::collections::{HashMap, HashSet};
+
+use crate::usage_account_meta::{derive_account_meta, patch_account_meta_in_place};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in super::super) enum CandidateSkipReason {
@@ -32,12 +35,14 @@ pub(crate) fn prepare_gateway_candidates(
         .map(str::trim)
         .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("all"));
     let exclude_free_accounts = request_exceeds_free_account_model_ceiling(storage, request_model)?;
+    let reserve_model = is_luna_reserve_model(request_model);
 
     // 中文注释：未受限的 Key 继续复用全局缓存；受限 Key 必须先形成 group + plan
     // 的授权交集，再在交集内执行额度保护，避免组外账号影响组内低额度兜底。
     if normalized_group_filter.is_none()
         && normalized_plan_filter.is_none()
         && !exclude_free_accounts
+        && !reserve_model
     {
         return super::super::super::collect_gateway_candidates_with_low_quota_mode(
             storage,
@@ -45,21 +50,25 @@ pub(crate) fn prepare_gateway_candidates(
         );
     }
 
-    let mut authorized_candidates = storage
-        .list_gateway_candidates()
-        .map_err(|err| format!("list gateway candidates failed: {err}"))?;
+    let mut authorized_candidates = if reserve_model {
+        storage.list_gateway_candidates_unfiltered()
+    } else {
+        storage.list_gateway_candidates()
+    }
+    .map_err(|err| format!("list gateway candidates failed: {err}"))?;
     if let Some(group_filter) = normalized_group_filter {
         authorized_candidates.retain(|(account, _)| {
             crate::account_group::account_matches_group_filter(account, Some(group_filter))
         });
     }
 
-    if normalized_plan_filter.is_some() || exclude_free_accounts {
+    let mut snapshots = HashMap::new();
+    if reserve_model || normalized_plan_filter.is_some() || exclude_free_accounts {
         let account_ids = authorized_candidates
             .iter()
             .map(|(account, _)| account.id.clone())
             .collect::<Vec<_>>();
-        let snapshots = storage
+        snapshots = storage
             .latest_usage_snapshots_for_accounts(&account_ids)
             .map_err(|err| format!("list account usage snapshots failed: {err}"))?
             .into_iter()
@@ -99,11 +108,68 @@ pub(crate) fn prepare_gateway_candidates(
         .map(|(account, _)| account.id)
         .collect::<Vec<_>>();
     // 中文注释：保持账号原始顺序（按账户排序字段）作为候选顺序，失败时再依次切下一个。
-    super::super::super::collect_gateway_candidates_for_account_ids_with_low_quota_mode(
-        storage,
-        &authorized_account_ids,
-        low_quota_mode,
-    )
+    let mut candidates =
+        super::super::super::collect_gateway_candidates_for_account_ids_with_low_quota_mode(
+            storage,
+            &authorized_account_ids,
+            low_quota_mode,
+        )?;
+    if !reserve_model {
+        return Ok(candidates);
+    }
+
+    let reserve_candidates =
+        collect_luna_reserve_candidates(storage, &authorized_account_ids, &snapshots)?;
+    let mut seen = candidates
+        .iter()
+        .map(|(account, _)| account.id.clone())
+        .collect::<HashSet<_>>();
+    for candidate in reserve_candidates {
+        if seen.insert(candidate.0.id.clone()) {
+            candidates.push(candidate);
+        }
+    }
+    Ok(candidates)
+}
+
+fn collect_luna_reserve_candidates(
+    storage: &Storage,
+    account_ids: &[String],
+    snapshots: &HashMap<String, UsageSnapshotRecord>,
+) -> Result<Vec<(Account, Token)>, String> {
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let candidates = storage
+        .list_gateway_candidates_unfiltered_for_accounts(account_ids)
+        .map_err(|err| format!("list Luna Reserve candidates failed: {err}"))?;
+    let mut out = Vec::with_capacity(candidates.len());
+    for (account, token) in candidates {
+        let force_enabled = account.status.trim().eq_ignore_ascii_case("force_enabled");
+        let reserve_available = snapshots
+            .get(account.id.as_str())
+            .and_then(|snapshot| snapshot.credits_json.as_deref())
+            .map(|credits| has_usable_luna_reserve(Some(credits)))
+            .unwrap_or(false);
+        if !force_enabled && !reserve_available {
+            continue;
+        }
+
+        let mut candidate_account = account;
+        let (chatgpt_account_id, workspace_id) = derive_account_meta(&token);
+        if patch_account_meta_in_place(&mut candidate_account, chatgpt_account_id, workspace_id) {
+            candidate_account.updated_at = now_ts();
+            let _ = storage.update_account_workspace_identity(
+                &candidate_account.id,
+                candidate_account.chatgpt_account_id.as_deref(),
+                candidate_account.workspace_id.as_deref(),
+                candidate_account.updated_at,
+            );
+        }
+        out.push((candidate_account, token));
+    }
+    Ok(out)
 }
 
 fn request_exceeds_free_account_model_ceiling(

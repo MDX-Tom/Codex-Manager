@@ -172,6 +172,74 @@ fn update_account_group_name_trims_and_clears_explicitly() {
 }
 
 #[test]
+fn update_account_toggles_force_enabled_status_and_rejects_hard_states() {
+    let _lock = crate::test_env_guard();
+    let (db_path, _guard) = set_test_db("account-update-force-enabled");
+    let storage = Storage::open(&db_path).expect("open db");
+    storage
+        .insert_account(&account("acc-force-enabled", 1))
+        .expect("insert account");
+
+    update_account(
+        "acc-force-enabled",
+        None,
+        None,
+        Some("force_enabled"),
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("enable force status");
+    assert_eq!(
+        Storage::open(&db_path)
+            .expect("reopen db")
+            .find_account_by_id("acc-force-enabled")
+            .expect("find")
+            .expect("exists")
+            .status,
+        "force_enabled"
+    );
+
+    update_account(
+        "acc-force-enabled",
+        None,
+        None,
+        Some("active"),
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("disable force status");
+    let storage = Storage::open(&db_path).expect("reopen active db");
+    storage
+        .update_account_status("acc-force-enabled", "unavailable")
+        .expect("mark unavailable");
+    let err = update_account(
+        "acc-force-enabled",
+        None,
+        None,
+        Some("force_enabled"),
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect_err("hard state must be cleared before force enable");
+    assert_eq!(err, "account status must be active before force enabling");
+}
+
+#[test]
 fn update_account_sorts_updates_all_rows_and_records_events() {
     let _lock = crate::test_env_guard();
     let (db_path, _guard) = set_test_db("account-update-sorts");

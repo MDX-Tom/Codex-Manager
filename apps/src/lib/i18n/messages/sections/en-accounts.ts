@@ -234,6 +234,13 @@ export const EN_ACCOUNTS_MESSAGES: MessageCatalog = {
   "额度容量必须是大于 0 的数字，留空表示未覆盖":
     "Quota capacity must be a number greater than 0. Leave blank for no override.",
   "额度已耗尽": "Quota exhausted",
+  "强制开启": "Force enabled",
+  "仅 Luna Reserve": "Luna Reserve only",
+  "Luna Reserve 额度": "Luna Reserve quota",
+  "额度耗尽后仍使用账号": "Keep using account after quota exhaustion",
+  "开启后忽略 5h/7d 耗尽状态，继续把该账号加入网关候选；默认关闭。":
+    "When enabled, ignore exhausted 5h/7d windows and keep this account in the gateway pool; off by default.",
+  "手动强制开启": "Manually force enabled",
   "额度已重置，但最新用量同步失败，请稍后手动刷新":
     "Quota was reset, but the latest usage could not be synced. Refresh it manually later.",
   "重置 5h + 7d": "Reset 5h + 7d",

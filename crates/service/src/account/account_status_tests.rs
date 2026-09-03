@@ -264,6 +264,41 @@ fn stale_account_test_outcomes_do_not_overwrite_newer_banned_status() {
 }
 
 #[test]
+fn account_test_rate_limit_does_not_clear_force_enabled_status() {
+    let _guard = crate::test_env_guard();
+    let storage = Storage::open_in_memory().expect("open storage");
+    storage.init().expect("init storage");
+    let now = now_ts();
+    let account_id = "acc-force-enabled-test-rate-limit";
+    storage
+        .insert_account(&Account {
+            id: account_id.to_string(),
+            label: "force-enabled-test-rate-limit".to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "force_enabled".to_string(),
+            created_at: now,
+            updated_at: now,
+        })
+        .expect("insert account");
+    let context = load_account_status_context(&storage, account_id);
+
+    assert!(!mark_account_limited_for_test_rate_limit(
+        &storage, account_id, &context
+    ));
+    assert_eq!(
+        storage
+            .find_account_status_by_id(account_id)
+            .expect("read account status")
+            .as_deref(),
+        Some("force_enabled")
+    );
+}
+
+#[test]
 fn account_test_success_never_restores_an_existing_banned_status() {
     let _guard = crate::test_env_guard();
     let storage = Storage::open_in_memory().expect("open storage");

@@ -296,6 +296,10 @@ export function isLimitedAccount(account?: { status?: string } | null): boolean 
   return normalizedAccountStatus(account) === "limited";
 }
 
+export function isForceEnabledAccount(account?: { status?: string } | null): boolean {
+  return normalizedAccountStatus(account) === "force_enabled";
+}
+
 /**
  * 函数 `isBannedAccount`
  *
@@ -411,9 +415,148 @@ function asObjectRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function firstObjectValue(
+  source: Record<string, unknown>,
+  keys: string[],
+): unknown {
+  for (const key of keys) {
+    if (source[key] !== undefined) return source[key];
+  }
+  return undefined;
+}
+
+function objectTextValue(
+  source: Record<string, unknown>,
+  keys: string[],
+): string {
+  const value = firstObjectValue(source, keys);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeRateLimitKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[-\s]+/g, "_")
+    .toLowerCase();
+}
+
+function isExtraRateLimitKey(key: string): boolean {
+  const normalized = normalizeRateLimitKey(key);
+  return (
+    normalized.endsWith("_rate_limit") ||
+    normalized.endsWith("ratelimit") ||
+    (normalized.includes("luna") && normalized.includes("reserve")) ||
+    (normalized.includes("gpt") && normalized.includes("reserve"))
+  );
+}
+
+function normalizeExtraRateLimitItems(raw: unknown): Record<string, unknown>[] {
+  const payload = asObjectRecord(raw);
+  if (!payload) return [];
+
+  const items: Record<string, unknown>[] = [];
+  const append = (value: unknown, sourceKey?: string) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => append(item, sourceKey));
+      return;
+    }
+    const source = asObjectRecord(value);
+    if (!source) return;
+    const sourceValue = objectTextValue(source, ["source_key", "sourceKey"]);
+    items.push(
+      sourceValue || !sourceKey
+        ? source
+        : { ...source, source_key: sourceKey },
+    );
+  };
+
+  append(payload[EXTRA_RATE_LIMITS_JSON_KEY]);
+  for (const key of ["additional_rate_limits", "additionalRateLimits"]) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      value.forEach((item) => append(item));
+    } else if (asObjectRecord(value)) {
+      for (const [sourceKey, item] of Object.entries(value as Record<string, unknown>)) {
+        append(item, sourceKey);
+      }
+    }
+  }
+  for (const [key, value] of Object.entries(payload)) {
+    if (
+      key === EXTRA_RATE_LIMITS_JSON_KEY ||
+      key === "additional_rate_limits" ||
+      key === "additionalRateLimits" ||
+      key === "rate_limit" ||
+      key === "rateLimit" ||
+      !isExtraRateLimitKey(key)
+    ) {
+      continue;
+    }
+    append(value, key);
+  }
+
+  return items;
+}
+
+function rateLimitEntryIdentifiers(source: Record<string, unknown>): string[] {
+  const nested = asObjectRecord(firstObjectValue(source, ["rate_limit", "rateLimit"]));
+  return [
+    objectTextValue(source, ["source_key", "sourceKey"]),
+    objectTextValue(source, ["limit_id", "limitId"]),
+    objectTextValue(source, ["limit_name", "limitName"]),
+    objectTextValue(source, ["metered_feature", "meteredFeature"]),
+    nested ? objectTextValue(nested, ["limit_id", "limitId"]) : "",
+    nested ? objectTextValue(nested, ["limit_name", "limitName"]) : "",
+    nested ? objectTextValue(nested, ["metered_feature", "meteredFeature"]) : "",
+  ].filter(Boolean);
+}
+
+function isLunaReserveIdentifier(value: string): boolean {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return (
+    normalized.includes("gptreserve") ||
+    normalized.includes("lunareserve") ||
+    normalized.includes("basemodelinference") ||
+    (normalized.includes("luna") && normalized.includes("reserve"))
+  );
+}
+
+function isRateLimitWindowUsable(window: Record<string, unknown> | null): boolean {
+  if (!window) return false;
+  const explicitRemaining = toNullableNumber(
+    firstObjectValue(window, ["remaining_percent", "remainingPercent"]),
+  );
+  if (explicitRemaining != null) return explicitRemaining > 0;
+  const used = toNullableNumber(
+    firstObjectValue(window, ["used_percent", "usedPercent"]),
+  );
+  return used != null && used < 100;
+}
+
+function isUsableRateLimitEntry(source: Record<string, unknown>): boolean {
+  const allowed = firstObjectValue(source, ["allowed"]);
+  if (allowed === false) return false;
+  const reached = firstObjectValue(source, ["limit_reached", "limitReached"]);
+  if (reached === true) return false;
+  const nested = asObjectRecord(firstObjectValue(source, ["rate_limit", "rateLimit"]));
+  const container = nested ?? source;
+  return (
+    isRateLimitWindowUsable(
+      asObjectRecord(firstObjectValue(container, ["primary_window", "primaryWindow"])),
+    ) ||
+    isRateLimitWindowUsable(
+      asObjectRecord(firstObjectValue(container, ["secondary_window", "secondaryWindow"])),
+    )
+  );
+}
+
 function humanizeExtraRateLimitLabel(raw: string): string {
   const normalized = raw.trim().toLowerCase();
   if (!normalized) return "额外额度";
+  if (isLunaReserveIdentifier(normalized)) return "Luna Reserve 额度";
   if (normalized.includes("spark") || normalized === "codex_other") return "Spark 额度";
   if (normalized.includes("code_review") || normalized.includes("code review")) {
     return "Code Review 额度";
@@ -447,41 +590,64 @@ function formatWindowLabel(
 
 function extractExtraRateLimitWindows(raw: string | null | undefined): ExtraUsageDisplayRow[] {
   const credits = parseCreditsJson(raw);
-  const payload = asObjectRecord(credits);
-  const items = Array.isArray(payload?.[EXTRA_RATE_LIMITS_JSON_KEY])
-    ? (payload?.[EXTRA_RATE_LIMITS_JSON_KEY] as unknown[])
-    : [];
+  const items = normalizeExtraRateLimitItems(credits);
+  const seenIds = new Map<string, number>();
 
   return items.reduce<ExtraUsageDisplayRow[]>((rows, item, index) => {
-    const source = asObjectRecord(item);
-    if (!source) return rows;
-
+    const source = item;
+    const identifiers = rateLimitEntryIdentifiers(source);
     const labelSeed =
-      (typeof source.limit_name === "string" && source.limit_name.trim()) ||
-      (typeof source.limit_id === "string" && source.limit_id.trim()) ||
-      (typeof source.source_key === "string" && source.source_key.trim()) ||
+      objectTextValue(source, ["limit_name", "limitName"]) ||
+      objectTextValue(source, ["limit_id", "limitId"]) ||
+      objectTextValue(source, ["source_key", "sourceKey"]) ||
+      objectTextValue(source, ["metered_feature", "meteredFeature"]) ||
       `extra-${index + 1}`;
-    const baseLabel = humanizeExtraRateLimitLabel(labelSeed);
+    const baseLabel = identifiers.some(isLunaReserveIdentifier)
+      ? "Luna Reserve 额度"
+      : humanizeExtraRateLimitLabel(labelSeed);
+    const windowContainer =
+      asObjectRecord(firstObjectValue(source, ["rate_limit", "rateLimit"])) ?? source;
     const windows = [
-      { key: "primary_window" },
-      { key: "secondary_window", suffix: " · 长周期" },
+      { key: "primary_window", aliases: ["primary_window", "primaryWindow"] },
+      {
+        key: "secondary_window",
+        aliases: ["secondary_window", "secondaryWindow"],
+        suffix: " · 长周期",
+      },
     ];
 
-    for (const { key, suffix } of windows) {
-      const window = asObjectRecord(source[key]);
+    for (const { key, aliases, suffix } of windows) {
+      const window = asObjectRecord(firstObjectValue(windowContainer, aliases));
       if (!window) continue;
 
-      const remainPercent = remainingPercent(toNullableNumber(window.used_percent));
-      const resetsAt = toNullableNumber(window.reset_at);
-      const windowSeconds = toNullableNumber(window.limit_window_seconds);
+      const explicitRemaining = toNullableNumber(
+        firstObjectValue(window, ["remaining_percent", "remainingPercent"]),
+      );
+      const remainPercent =
+        explicitRemaining == null
+          ? remainingPercent(
+              toNullableNumber(firstObjectValue(window, ["used_percent", "usedPercent"])),
+            )
+          : Math.max(0, Math.min(100, Math.round(explicitRemaining)));
+      const resetsAt = toNullableNumber(firstObjectValue(window, ["reset_at", "resetAt"]));
+      const windowSeconds = toNullableNumber(
+        firstObjectValue(window, ["limit_window_seconds", "limitWindowSeconds"]),
+      );
       const minutes = windowSeconds == null ? null : Math.max(1, Math.ceil(windowSeconds / 60));
       if (remainPercent == null && resetsAt == null && minutes == null) {
         continue;
       }
 
       const windowLabel = formatWindowLabel(minutes);
+      const idSeed = identifiers.join("-") || `extra-${index + 1}`;
+      const normalizedId = `${idSeed}-${key}`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      const duplicateCount = seenIds.get(normalizedId) ?? 0;
+      seenIds.set(normalizedId, duplicateCount + 1);
       rows.push({
-        id: `${labelSeed}-${key}-${index}`,
+        id: duplicateCount > 0 ? `${normalizedId}-${duplicateCount}` : normalizedId,
         label: baseLabel,
         labelSuffix: suffix,
         remainPercent,
@@ -493,6 +659,17 @@ function extractExtraRateLimitWindows(raw: string | null | undefined): ExtraUsag
 
     return rows;
   }, []);
+}
+
+export function hasUsableLunaReserve(
+  usage?: Partial<AccountUsage> | null,
+): boolean {
+  const credits = parseCreditsJson(usage?.creditsJson);
+  return normalizeExtraRateLimitItems(credits).some(
+    (source) =>
+      rateLimitEntryIdentifiers(source).some(isLunaReserveIdentifier) &&
+      isUsableRateLimitEntry(source),
+  );
 }
 
 /**
@@ -665,6 +842,10 @@ export function calcAvailability(
 ): { text: string; level: AvailabilityLevel } {
   const primaryExhausted = (usage?.usedPercent ?? 0) >= 100;
   const secondaryExhausted = (usage?.secondaryUsedPercent ?? 0) >= 100;
+  const reserveAvailable = hasUsableLunaReserve(usage);
+  const normalizedStatus = String(usage?.availabilityStatus || "")
+    .trim()
+    .toLowerCase();
 
   if (isDisabledAccount(account)) {
     return { text: "已禁用", level: "bad" };
@@ -675,22 +856,28 @@ export function calcAvailability(
   if (isBannedAccount(account)) {
     return { text: "封禁", level: "bad" };
   }
-  if (isLimitedAccount(account)) {
-    return { text: "限流", level: "bad" };
-  }
   if (isUnavailableAccount(account)) {
     return { text: "不可用", level: "bad" };
   }
   if (account?.hasToken === false) {
     return { text: "缺少授权 Token", level: "bad" };
   }
+  if (isForceEnabledAccount(account)) {
+    return { text: "强制开启", level: "ok" };
+  }
+  if (normalizedStatus === "available_luna_reserve") {
+    return { text: "仅 Luna Reserve", level: "ok" };
+  }
+  if (reserveAvailable && (primaryExhausted || secondaryExhausted)) {
+    return { text: "仅 Luna Reserve", level: "ok" };
+  }
+  if (isLimitedAccount(account)) {
+    return { text: "限流", level: "bad" };
+  }
   if (!usage) {
     return { text: "未知", level: "unknown" };
   }
 
-  const normalizedStatus = String(usage.availabilityStatus || "")
-    .trim()
-    .toLowerCase();
   const displayMode = getUsageWindowDisplayMode(usage);
   if (normalizedStatus === "available") {
     return { text: "可用", level: "ok" };

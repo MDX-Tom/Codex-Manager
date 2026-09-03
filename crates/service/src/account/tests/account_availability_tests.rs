@@ -114,6 +114,20 @@ fn availability_marks_exhausted_secondary_unavailable() {
     ));
 }
 
+#[test]
+fn availability_keeps_exhausted_standard_windows_available_with_luna_reserve() {
+    let mut record = snap(Some(100.0), Some(300), Some(100.0), Some(10080));
+    record.credits_json = Some(
+        r#"{"_codexmanager_extra_rate_limits":[{"limit_name":"Luna Reserve","primary_window":{"used_percent":25.0}}]}"#
+            .to_string(),
+    );
+
+    assert!(matches!(
+        evaluate_snapshot(&record),
+        Availability::Available
+    ));
+}
+
 /// 函数 `availability_marks_ok_available`
 ///
 /// 作者: gaohongshun

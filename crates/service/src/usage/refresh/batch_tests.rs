@@ -175,6 +175,7 @@ fn load_refreshable_accounts_skips_disabled_and_banned_rows_in_sql() {
         account("acc-limited", "limited", None),
         account("acc-unavailable", "unavailable", None),
         account("acc-unknown", "unknown", None),
+        account("acc-force-enabled", "force_enabled", None),
         account("acc-disabled", "disabled", None),
         account("acc-banned", "banned", None),
     ] {
@@ -191,6 +192,7 @@ fn load_refreshable_accounts_skips_disabled_and_banned_rows_in_sql() {
         account_ids,
         vec![
             "acc-active".to_string(),
+            "acc-force-enabled".to_string(),
             "acc-inactive".to_string(),
             "acc-limited".to_string(),
             "acc-unavailable".to_string(),

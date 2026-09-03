@@ -1,5 +1,6 @@
 use super::{
-    mark_usage_unreachable_if_needed, record_usage_refresh_failure, should_retry_with_refresh,
+    classify_usage_status_from_snapshot_value, mark_usage_unreachable_if_needed,
+    record_usage_refresh_failure, should_retry_with_refresh, UsageAvailabilityStatus,
 };
 use crate::account_availability::Availability;
 use crate::account_status::{
@@ -11,6 +12,30 @@ use crate::account_status::{
 use crate::usage_snapshot_store::apply_status_from_snapshot;
 use codexmanager_core::storage::{now_ts, Account, Storage, UsageSnapshotRecord};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[test]
+fn usage_refresh_classifies_luna_reserve_as_available_after_standard_exhaustion() {
+    let status = classify_usage_status_from_snapshot_value(&serde_json::json!({
+        "rate_limit": {
+            "primary_window": {
+                "used_percent": 100.0,
+                "limit_window_seconds": 18000
+            }
+        },
+        "additionalRateLimits": [
+            {
+                "limitName": "Luna Reserve",
+                "meteredFeature": "base_model_inference",
+                "rateLimit": {
+                    "primaryWindow": { "remainingPercent": 80.0 }
+                }
+            }
+        ]
+    }));
+
+    assert_eq!(status, UsageAvailabilityStatus::AvailableLunaReserve);
+    assert_eq!(status.as_code(), "available_luna_reserve");
+}
 
 /// 函数 `unique_id`
 ///
@@ -217,6 +242,50 @@ fn apply_status_exhausted_snapshot_marks_account_limited() {
     assert_eq!(
         reasons.get("acc-limited").map(String::as_str),
         Some("usage_limit_exhausted")
+    );
+}
+
+#[test]
+fn apply_status_preserves_force_enabled_account_after_exhaustion() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let account = Account {
+        id: "acc-force-enabled".to_string(),
+        label: "force-enabled".to_string(),
+        issuer: "issuer".to_string(),
+        chatgpt_account_id: None,
+        workspace_id: None,
+        group_name: None,
+        sort: 0,
+        status: "force_enabled".to_string(),
+        created_at: now_ts(),
+        updated_at: now_ts(),
+    };
+    storage.insert_account(&account).expect("insert");
+
+    let availability = apply_status_from_snapshot(
+        &storage,
+        &UsageSnapshotRecord {
+            account_id: account.id.clone(),
+            used_percent: Some(100.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: Some(100.0),
+            secondary_window_minutes: Some(10080),
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now_ts(),
+        },
+    );
+
+    assert!(matches!(availability, Availability::Unavailable(_)));
+    assert_eq!(
+        storage
+            .find_account_by_id(account.id.as_str())
+            .expect("find")
+            .expect("exists")
+            .status,
+        "force_enabled"
     );
 }
 

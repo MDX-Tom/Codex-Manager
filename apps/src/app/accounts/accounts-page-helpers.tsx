@@ -137,6 +137,7 @@ export interface AccountEditorState {
   currentTags: string;
   currentNote: string;
   currentSort: number;
+  currentForceEnabled: boolean;
   currentQuotaPrimaryWindowTokens: number | null;
   currentQuotaSecondaryWindowTokens: number | null;
 }
@@ -438,6 +439,8 @@ export function formatAccountStatusReasonLabel(
       return t("工作区已停用");
     case "usage_limit_exhausted":
       return t("额度已耗尽");
+    case "manual_force_enable":
+      return t("手动强制开启");
     default:
       return reasonCode;
   }

@@ -197,7 +197,13 @@ fn apply_quota_guard(
     let mut normal = Vec::with_capacity(candidates.len());
     let mut low_quota = Vec::new();
     for candidate in candidates.drain(..) {
-        if low_quota_ids.contains(candidate.0.id.as_str()) {
+        if low_quota_ids.contains(candidate.0.id.as_str())
+            && !candidate
+                .0
+                .status
+                .trim()
+                .eq_ignore_ascii_case("force_enabled")
+        {
             low_quota.push(candidate);
         } else {
             normal.push(candidate);

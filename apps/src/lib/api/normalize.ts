@@ -144,6 +144,19 @@ function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value.trim() : fallback;
 }
 
+function asJsonString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text || null;
+  }
+  if (!value || typeof value !== "object") return null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 函数 `asBoolean`
  *
@@ -282,7 +295,7 @@ export function normalizeUsageSnapshot(payload: unknown): AccountUsage | null {
     secondaryResetsAt: toNullableNumber(
       source.secondaryResetsAt ?? source.secondary_resets_at
     ),
-    creditsJson: asString(source.creditsJson ?? source.credits_json) || null,
+    creditsJson: asJsonString(source.creditsJson ?? source.credits_json),
     capturedAt: toNullableNumber(source.capturedAt ?? source.captured_at),
   };
 }
@@ -322,7 +335,19 @@ export function normalizeUsageList(payload: unknown): AccountUsage[] {
  * 返回函数执行结果
  */
 export function buildUsageMap(usages: AccountUsage[]): Map<string, AccountUsage> {
-  return new Map(usages.map((item) => [item.accountId, item]));
+  const result = new Map<string, AccountUsage>();
+  for (const item of usages) {
+    const previous = result.get(item.accountId);
+    if (
+      previous &&
+      previous.capturedAt != null &&
+      (item.capturedAt == null || item.capturedAt < previous.capturedAt)
+    ) {
+      continue;
+    }
+    result.set(item.accountId, item);
+  }
+  return result;
 }
 
 /**

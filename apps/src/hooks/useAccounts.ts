@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { accountClient, type AccountUsageRefreshResult } from "@/lib/api/account-client";
 import { CODEX_PROFILE_CANDIDATES_QUERY_KEY } from "@/lib/api/codex-profile-client";
-import { attachUsagesToAccounts } from "@/lib/api/normalize";
+import { attachUsagesToAccounts, buildUsageMap } from "@/lib/api/normalize";
 import { serviceClient } from "@/lib/api/service-client";
 import {
   buildStartupSnapshotQueryKey,
@@ -228,6 +228,7 @@ export function useAccounts() {
     backgroundTasks.usagePollIntervalSecs,
   );
   const usageListFingerprintRef = useRef<string | null>(null);
+  const lastKnownUsagesRef = useRef<Map<string, AccountUsage>>(new Map());
   const importedUsageRefreshIdsRef = useRef<Set<string>>(new Set());
   const importedUsageRefreshInFlightRef = useRef<Set<string>>(new Set());
   const [importedUsageRefreshVersion, setImportedUsageRefreshVersion] = useState(0);
@@ -497,9 +498,17 @@ export function useAccounts() {
   const visibleAccountList = accountsQuery.data;
 
   const accounts = useMemo(() => {
+    const incomingUsages = usagesQuery.data || [];
+    if (incomingUsages.length > 0) {
+      const mergedUsages = buildUsageMap([
+        ...lastKnownUsagesRef.current.values(),
+        ...incomingUsages,
+      ]);
+      lastKnownUsagesRef.current = mergedUsages;
+    }
     return attachUsagesToAccounts(
       visibleAccountList?.items || [],
-      usagesQuery.data || []
+      Array.from(lastKnownUsagesRef.current.values()),
     );
   }, [visibleAccountList?.items, usagesQuery.data]);
 
@@ -776,6 +785,7 @@ export function useAccounts() {
       note,
       tags,
       sort,
+      status,
       quotaCapacityPrimaryWindowTokens,
       quotaCapacitySecondaryWindowTokens,
     }: {
@@ -785,6 +795,7 @@ export function useAccounts() {
       note?: string | null;
       tags?: string[] | string | null;
       sort?: number | null;
+      status?: string | null;
       quotaCapacityPrimaryWindowTokens?: number | null;
       quotaCapacitySecondaryWindowTokens?: number | null;
     }) =>
@@ -794,6 +805,7 @@ export function useAccounts() {
         note,
         tags,
         sort,
+        status,
         quotaCapacityPrimaryWindowTokens,
         quotaCapacitySecondaryWindowTokens,
       }),
@@ -1248,6 +1260,7 @@ export function useAccounts() {
         note?: string | null;
         tags?: string[] | string | null;
         sort?: number | null;
+        status?: string | null;
         quotaCapacityPrimaryWindowTokens?: number | null;
         quotaCapacitySecondaryWindowTokens?: number | null;
       }
